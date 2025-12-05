@@ -1,14 +1,17 @@
 import logging
 import os
-from utils.helm import check_helm_installed, add_helm_repo, install_helm_chart
-from utils.kubectl import run_kubectl_command, check_cluster_connection
+import subprocess
+import tempfile
+from utils.helm import check_helm_installed, add_helm_repo, install_helm_chart, run_helm_command
+from utils.kubectl import run_kubectl_command, check_cluster_connection, run_eksctl_command
 from jinja2 import Environment, FileSystemLoader
 
 class KarpenterInstaller:
     def __init__(self, logger: logging.Logger):
         self.logger = logger
         self.chart_name = "oci://public.ecr.aws/karpenter/karpenter"
-        self.namespace = "karpenter"
+        self.chart_version = "1.8.1"
+        self.namespace = "kube-system"  # As per official documentation
         self.release_name = "karpenter"
 
     def check_prerequisites(self) -> bool:
@@ -44,34 +47,56 @@ class KarpenterInstaller:
             return False
 
     def install(self, cluster_name: str, region: str, cluster_endpoint: str) -> bool:
-        """Install Karpenter controller."""
+        """Install Karpenter controller following official documentation."""
         self.logger.info("Installing Karpenter...")
 
         # Check prerequisites
         if not self.check_prerequisites():
             return False
 
-        # Install CRDs
-        if not self.install_crds():
-            self.logger.error("Failed to install Karpenter CRDs.")
-            return False
-
-        # Prepare IAM role (simplified - in practice this would involve creating an IAM role)
+        # Get account ID
         account_id = self._get_account_id()
         if not account_id:
             self.logger.error("Failed to get AWS account ID.")
             return False
 
-        # Install via Helm
+        # Create CloudFormation stack as per official documentation
+        if not self._create_cloudformation_stack(cluster_name, region, account_id):
+            self.logger.error("Failed to create CloudFormation stack.")
+            return False
+
+        # Add required IAM identity mapping
+        if not self._add_iam_identity_mapping(cluster_name, region, account_id):
+            self.logger.error("Failed to add IAM identity mapping.")
+            return False
+
+        # Create service linked role for EC2 Spot (if needed)
+        self._create_spot_service_linked_role()
+
+        # Logout of helm registry to perform an unauthenticated pull against the public ECR
+        try:
+            subprocess.run(["helm", "registry", "logout", "public.ecr.aws"],
+                         capture_output=True, text=True)
+            self.logger.info("Logged out of helm registry.")
+        except Exception as e:
+            self.logger.warning(f"Failed to logout of helm registry: {str(e)}")
+
+        # Install via Helm with proper settings as per official documentation
         values = {
             "settings": {
                 "clusterName": cluster_name,
-                "region": region,
-                "clusterEndpoint": cluster_endpoint
+                "interruptionQueue": cluster_name
             },
-            "serviceAccount": {
-                "annotations": {
-                    "eks.amazonaws.com/role-arn": f"arn:aws:iam::{account_id}:role/KarpenterControllerRole-{cluster_name}"
+            "controller": {
+                "resources": {
+                    "requests": {
+                        "cpu": "1",
+                        "memory": "1Gi"
+                    },
+                    "limits": {
+                        "cpu": "1",
+                        "memory": "1Gi"
+                    }
                 }
             }
         }
@@ -80,7 +105,8 @@ class KarpenterInstaller:
             release_name=self.release_name,
             chart_name=self.chart_name,
             namespace=self.namespace,
-            create_namespace=True,
+            version=self.chart_version,
+            create_namespace=False,  # Already exists in kube-system
             values=values,
             logger=self.logger
         ):
@@ -94,11 +120,118 @@ class KarpenterInstaller:
         """Get AWS account ID."""
         try:
             cmd = ["aws", "sts", "get-caller-identity", "--query", "Account", "--output", "text"]
-            result = run_kubectl_command(cmd[:3] + cmd[4:], self.logger)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return result.stdout.strip()
         except Exception as e:
             self.logger.error(f"Failed to get AWS account ID: {str(e)}")
             return ""
+
+    def _create_cloudformation_stack(self, cluster_name: str, region: str, account_id: str) -> bool:
+        """Create CloudFormation stack as per official documentation."""
+        try:
+            self.logger.info("Creating CloudFormation stack for Karpenter...")
+
+            # Download CloudFormation template
+            template_url = f"https://raw.githubusercontent.com/aws/karpenter-provider-aws/v{self.chart_version}/website/content/en/preview/getting-started/getting-started-with-karpenter/cloudformation.yaml"
+
+            temp_fd, temp_template_file = tempfile.mkstemp(suffix='.yaml')
+            os.close(temp_fd)
+
+            try:
+                # Download the template
+                curl_cmd = ["curl", "-fsSL", template_url, "-o", temp_template_file]
+                subprocess.run(curl_cmd, check=True, capture_output=True)
+
+                # Deploy CloudFormation stack
+                stack_name = f"Karpenter-{cluster_name}"
+                deploy_cmd = [
+                    "aws", "cloudformation", "deploy",
+                    "--stack-name", stack_name,
+                    "--template-file", temp_template_file,
+                    "--capabilities", "CAPABILITY_NAMED_IAM",
+                    "--parameter-overrides", f"ClusterName={cluster_name}",
+                    "--region", region
+                ]
+
+                subprocess.run(deploy_cmd, check=True, capture_output=True, text=True)
+                self.logger.info("CloudFormation stack created successfully.")
+                return True
+
+            finally:
+                # Clean up temporary file
+                if os.path.exists(temp_template_file):
+                    os.unlink(temp_template_file)
+
+        except subprocess.CalledProcessError as e:
+            # If stack already exists, that's fine
+            if "already exists" in str(e) or "already exists" in e.stderr:
+                self.logger.info("CloudFormation stack already exists, continuing...")
+                return True
+            else:
+                self.logger.error(f"Failed to create CloudFormation stack: {e.stderr}")
+                return False
+        except Exception as e:
+            self.logger.error(f"Failed to create CloudFormation stack: {str(e)}")
+            return False
+
+    def _add_iam_identity_mapping(self, cluster_name: str, region: str, account_id: str) -> bool:
+        """Add IAM identity mapping for Karpenter node role."""
+        try:
+            self.logger.info("Adding IAM identity mapping for Karpenter...")
+
+            # Add IAM identity mapping using eksctl
+            mapping_cmd = [
+                "eksctl", "create", "iamidentitymapping",
+                "--cluster", cluster_name,
+                "--region", region,
+                "--arn", f"arn:aws:iam::{account_id}:role/KarpenterNodeRole-{cluster_name}",
+                "--username", "system:node:{{EC2PrivateDNSName}}",
+                "--group", "system:bootstrappers",
+                "--group", "system:nodes"
+            ]
+
+            run_eksctl_command(mapping_cmd, self.logger)
+            self.logger.info("IAM identity mapping added successfully.")
+            return True
+
+        except subprocess.CalledProcessError as e:
+            # If mapping already exists, that's fine
+            if "already exists" in str(e) or "already exists" in e.stderr:
+                self.logger.info("IAM identity mapping already exists, continuing...")
+                return True
+            else:
+                self.logger.error(f"Failed to add IAM identity mapping: {e.stderr}")
+                return False
+        except Exception as e:
+            self.logger.error(f"Failed to add IAM identity mapping: {str(e)}")
+            return False
+
+    def _create_spot_service_linked_role(self) -> bool:
+        """Create service linked role for EC2 Spot if needed."""
+        try:
+            self.logger.info("Creating service linked role for EC2 Spot...")
+
+            cmd = [
+                "aws", "iam", "create-service-linked-role",
+                "--aws-service-name", "spot.amazonaws.com"
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                self.logger.info("Service linked role for EC2 Spot created successfully.")
+            else:
+                # If role already exists, that's fine
+                if "has been taken" in result.stderr:
+                    self.logger.info("Service linked role for EC2 Spot already exists, continuing...")
+                else:
+                    self.logger.error(f"Failed to create service linked role: {result.stderr}")
+                    return False
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to create service linked role: {str(e)}")
+            return False
 
     def generate_nodepool_yaml(self, cluster_name: str, output_dir: str = "output/") -> str:
         """Generate NodePool and EC2NodeClass YAML configuration."""

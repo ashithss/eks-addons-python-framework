@@ -21,10 +21,10 @@ def display_menu():
     print("="*60)
     print("Select addon(s) to install (comma-separated for multiple):")
     print("1. AWS Load Balancer Controller")
-    print("2. Nvidia Device Plugin")
-    print("3. Karpenter")
-    print("4. Kyverno")
-    print("5. Calico Network Policy")
+    print("2. Karpenter")
+    print("3. Kyverno")
+    print("4. Calico Network Policy")
+    print("5. Nvidia Device Plugin")
     print("6. Future Addons (Placeholder)")
     print("7. Exit")
     print("-"*60)
@@ -73,10 +73,10 @@ def install_addons(selected_addons, args, logger):
     """Install selected addons."""
     installers = {
         1: ("AWS Load Balancer Controller", AWSLoadBalancerControllerInstaller(logger)),
-        2: ("Nvidia Device Plugin", NvidiaDevicePluginInstaller(logger)),
-        3: ("Karpenter", KarpenterInstaller(logger)),
-        4: ("Kyverno", KyvernoInstaller(logger)),
-        5: ("Calico Network Policy", CalicoInstaller(logger)),
+        2: ("Karpenter", KarpenterInstaller(logger)),
+        3: ("Kyverno", KyvernoInstaller(logger)),
+        4: ("Calico Network Policy", CalicoInstaller(logger)),
+        5: ("Nvidia Device Plugin", NvidiaDevicePluginInstaller(logger)),
     }
 
     # Install in order
@@ -88,13 +88,17 @@ def install_addons(selected_addons, args, logger):
             try:
                 if choice == 1:  # AWS Load Balancer Controller
                     success = installer.install(args.cluster_name, args.region, args.account_id)
-                elif choice == 2:  # Nvidia Device Plugin
-                    success = installer.install(enable_time_slicing=args.enable_time_slicing)
-                elif choice == 3:  # Karpenter
+                elif choice == 2:  # Karpenter
                     success = installer.install(args.cluster_name, args.region, args.cluster_endpoint)
                     # Generate NodePool YAML after successful installation
                     if success:
                         installer.generate_nodepool_yaml(args.cluster_name)
+                elif choice == 3:  # Kyverno
+                    success = installer.install()
+                elif choice == 4:  # Calico
+                    success = installer.install()
+                elif choice == 5:  # Nvidia Device Plugin
+                    success = installer.install(enable_time_slicing=args.enable_time_slicing)
                 else:  # Others
                     success = installer.install()
 
