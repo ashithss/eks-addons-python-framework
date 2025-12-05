@@ -41,9 +41,17 @@ class AWSLoadBalancerControllerInstaller:
                 "--approve"
             ]
 
-            result = run_eksctl_command(oidc_cmd[:-1] + ["--dry-run"], self.logger)
-            if "already exists" not in result.stdout:
+            # Try to associate OIDC provider, it will succeed or indicate it already exists
+            try:
                 run_eksctl_command(oidc_cmd, self.logger)
+                self.logger.info("OIDC provider associated successfully.")
+            except subprocess.CalledProcessError as e:
+                # If it already exists, that's fine
+                if "already exists" in str(e) or "already associated" in str(e):
+                    self.logger.info("OIDC provider already exists, continuing...")
+                else:
+                    # Re-raise if it's a different error
+                    raise
 
             # Create IAM service account
             sa_cmd = [
