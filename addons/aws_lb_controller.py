@@ -90,6 +90,11 @@ class AWSLoadBalancerControllerInstaller:
             self.logger.error("Failed to create IAM service account.")
             return False
 
+        # Install CRDs
+        if not self._install_crds():
+            self.logger.error("Failed to install CRDs.")
+            return False
+
         # Install via Helm
         vpc_id = self._get_vpc_id(cluster_name, region)
         if not vpc_id:
@@ -136,6 +141,42 @@ class AWSLoadBalancerControllerInstaller:
         except Exception as e:
             self.logger.error(f"Failed to get VPC ID: {str(e)}")
             return ""
+
+    def _install_crds(self) -> bool:
+        """Install Custom Resource Definitions for the AWS Load Balancer Controller."""
+        try:
+            self.logger.info("Installing CRDs for AWS Load Balancer Controller...")
+
+            # Download and apply CRDs
+            crd_url = "https://raw.githubusercontent.com/aws/eks-charts/master/stable/aws-load-balancer-controller/crds/crds.yaml"
+
+            # Use curl to download the CRD file
+            import tempfile
+            import os
+
+            # Create temporary file
+            temp_fd, temp_filename = tempfile.mkstemp(suffix='.yaml')
+            os.close(temp_fd)  # Close the file descriptor as we'll use the filename
+
+            try:
+                # Download the CRDs
+                curl_cmd = ["curl", "-o", temp_filename, crd_url]
+                subprocess.run(curl_cmd, check=True, capture_output=True)
+
+                # Apply the CRDs
+                apply_cmd = ["apply", "-f", temp_filename]
+                run_kubectl_command(apply_cmd, self.logger)
+
+                self.logger.info("CRDs installed successfully.")
+                return True
+            finally:
+                # Clean up temporary file
+                if os.path.exists(temp_filename):
+                    os.unlink(temp_filename)
+
+        except Exception as e:
+            self.logger.error(f"Failed to install CRDs: {str(e)}")
+            return False
 
     def validate_installation(self) -> bool:
         """Validate that the controller is installed and running."""
