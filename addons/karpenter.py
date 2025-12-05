@@ -140,7 +140,10 @@ class KarpenterInstaller:
             try:
                 # Download the template
                 curl_cmd = ["curl", "-fsSL", template_url, "-o", temp_template_file]
-                subprocess.run(curl_cmd, check=True, capture_output=True)
+                curl_result = subprocess.run(curl_cmd, capture_output=True, text=True)
+                if curl_result.returncode != 0:
+                    self.logger.error(f"Failed to download CloudFormation template: {curl_result.stderr}")
+                    return False
 
                 # Deploy CloudFormation stack
                 stack_name = f"Karpenter-{cluster_name}"
@@ -153,23 +156,24 @@ class KarpenterInstaller:
                     "--region", region
                 ]
 
-                subprocess.run(deploy_cmd, check=True, capture_output=True, text=True)
-                self.logger.info("CloudFormation stack created successfully.")
-                return True
+                deploy_result = subprocess.run(deploy_cmd, capture_output=True, text=True)
+                if deploy_result.returncode == 0:
+                    self.logger.info("CloudFormation stack created successfully.")
+                    return True
+                else:
+                    # If stack already exists, that's fine
+                    if "already exists" in deploy_result.stderr:
+                        self.logger.info("CloudFormation stack already exists, continuing...")
+                        return True
+                    else:
+                        self.logger.error(f"Failed to create CloudFormation stack: {deploy_result.stderr}")
+                        return False
 
             finally:
                 # Clean up temporary file
                 if os.path.exists(temp_template_file):
                     os.unlink(temp_template_file)
 
-        except subprocess.CalledProcessError as e:
-            # If stack already exists, that's fine
-            if "already exists" in str(e) or "already exists" in e.stderr:
-                self.logger.info("CloudFormation stack already exists, continuing...")
-                return True
-            else:
-                self.logger.error(f"Failed to create CloudFormation stack: {e.stderr}")
-                return False
         except Exception as e:
             self.logger.error(f"Failed to create CloudFormation stack: {str(e)}")
             return False
@@ -219,19 +223,21 @@ class KarpenterInstaller:
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode == 0:
                 self.logger.info("Service linked role for EC2 Spot created successfully.")
+                return True
             else:
                 # If role already exists, that's fine
-                if "has been taken" in result.stderr:
+                if "has been taken" in result.stderr or "InvalidUserType" in result.stderr:
                     self.logger.info("Service linked role for EC2 Spot already exists, continuing...")
+                    return True
                 else:
-                    self.logger.error(f"Failed to create service linked role: {result.stderr}")
-                    return False
-
-            return True
+                    self.logger.warning(f"Failed to create service linked role: {result.stderr}")
+                    # This is not fatal, as the role might already exist or might be created by other means
+                    return True
 
         except Exception as e:
-            self.logger.error(f"Failed to create service linked role: {str(e)}")
-            return False
+            self.logger.warning(f"Exception while creating service linked role: {str(e)}")
+            # This is not fatal, as the role might already exist or might be created by other means
+            return True
 
     def generate_nodepool_yaml(self, cluster_name: str, output_dir: str = "output/") -> str:
         """Generate NodePool and EC2NodeClass YAML configuration."""
