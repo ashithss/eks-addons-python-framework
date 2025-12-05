@@ -1,6 +1,7 @@
 import logging
+import subprocess
 from utils.helm import check_helm_installed, add_helm_repo, install_helm_chart
-from utils.kubectl import run_kubectl_command, check_cluster_connection
+from utils.kubectl import run_kubectl_command, run_eksctl_command, check_cluster_connection
 
 class AWSLoadBalancerControllerInstaller:
     def __init__(self, logger: logging.Logger):
@@ -34,19 +35,19 @@ class AWSLoadBalancerControllerInstaller:
 
             # Associate OIDC provider (if needed)
             oidc_cmd = [
-                "eksctl", "utils", "associate-iam-oidc-provider",
+                "utils", "associate-iam-oidc-provider",
                 "--region", region,
                 "--cluster", cluster_name,
                 "--approve"
             ]
 
-            result = run_kubectl_command(oidc_cmd[:-3] + ["--dry-run"], self.logger)
+            result = run_eksctl_command(oidc_cmd[:-1] + ["--dry-run"], self.logger)
             if "already exists" not in result.stdout:
-                run_kubectl_command(oidc_cmd, self.logger)
+                run_eksctl_command(oidc_cmd, self.logger)
 
             # Create IAM service account
             sa_cmd = [
-                "eksctl", "create", "iamserviceaccount",
+                "create", "iamserviceaccount",
                 "--region", region,
                 "--cluster", cluster_name,
                 "--namespace", self.namespace,
@@ -56,7 +57,7 @@ class AWSLoadBalancerControllerInstaller:
                 "--approve"
             ]
 
-            run_kubectl_command(sa_cmd, self.logger)
+            run_eksctl_command(sa_cmd, self.logger)
             self.logger.info("IAM service account created successfully.")
             return True
         except Exception as e:
@@ -121,7 +122,8 @@ class AWSLoadBalancerControllerInstaller:
                 "--output", "text"
             ]
 
-            result = run_kubectl_command(cmd[:4] + cmd[5:], self.logger)
+            # Run aws command directly, not through kubectl
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return result.stdout.strip()
         except Exception as e:
             self.logger.error(f"Failed to get VPC ID: {str(e)}")

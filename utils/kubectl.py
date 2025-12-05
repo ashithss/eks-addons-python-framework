@@ -20,6 +20,23 @@ def run_kubectl_command(command: List[str], logger: logging.Logger) -> subproces
         logger.error(f"Kubectl command failed: {e.stderr}")
         raise
 
+def run_eksctl_command(command: List[str], logger: logging.Logger) -> subprocess.CompletedProcess:
+    """Run an eksctl command and return the result."""
+    full_command = ["eksctl"] + command
+    logger.debug(f"Running command: {' '.join(full_command)}")
+
+    try:
+        result = subprocess.run(
+            full_command,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Eksctl command failed: {e.stderr}")
+        raise
+
 def check_cluster_connection(logger: logging.Logger) -> bool:
     """Check if kubectl can connect to a cluster."""
     try:
