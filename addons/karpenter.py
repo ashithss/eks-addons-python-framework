@@ -181,7 +181,7 @@ class KarpenterInstaller:
 
             # Add IAM identity mapping using eksctl
             mapping_cmd = [
-                "eksctl", "create", "iamidentitymapping",
+                "create", "iamidentitymapping",
                 "--cluster", cluster_name,
                 "--region", region,
                 "--arn", f"arn:aws:iam::{account_id}:role/KarpenterNodeRole-{cluster_name}",
