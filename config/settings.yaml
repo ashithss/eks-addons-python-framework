@@ -1,0 +1,34 @@
+# EKS Addon Installer Configuration
+
+# Default settings
+defaults:
+  region: us-west-2
+  namespace: kube-system
+  timeout: 300
+
+# Addon-specific settings
+addons:
+  aws_lb_controller:
+    namespace: kube-system
+    chart_version: "1.8.1"
+
+  nvidia_plugin:
+    namespace: gpu-operator
+    chart_version: "25.3.0"
+
+  karpenter:
+    namespace: karpenter
+    chart_version: "0.37.0"
+
+  kyverno:
+    namespace: kyverno
+    chart_version: "3.2.3"
+
+  calico:
+    namespace: calico-system
+    chart_version: "3.28.0"
+
+# Logging configuration
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
