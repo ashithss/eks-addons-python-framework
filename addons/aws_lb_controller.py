@@ -77,16 +77,20 @@ class AWSLoadBalancerControllerInstaller:
                 ]
 
                 # Run aws command directly
-                subprocess.run(policy_cmd, check=True, capture_output=True, text=True)
-                self.logger.info("IAM policy created successfully.")
+                result = subprocess.run(policy_cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    self.logger.info("IAM policy created successfully.")
+                else:
+                    # If policy already exists, that's fine
+                    if "EntityAlreadyExists" in result.stderr:
+                        self.logger.info("IAM policy already exists, continuing...")
+                    else:
+                        self.logger.error(f"Failed to create IAM policy: {result.stderr}")
+                        raise subprocess.CalledProcessError(result.returncode, policy_cmd, result.stderr)
 
             except subprocess.CalledProcessError as e:
-                # If policy already exists, that's fine
-                if "EntityAlreadyExists" in str(e):
-                    self.logger.info("IAM policy already exists, continuing...")
-                else:
-                    self.logger.error(f"Failed to create IAM policy: {e.stderr}")
-                    raise
+                self.logger.error(f"Failed to create IAM policy: {str(e)}")
+                raise
             finally:
                 # Clean up temporary file
                 if os.path.exists(temp_policy_file):
@@ -157,8 +161,7 @@ class AWSLoadBalancerControllerInstaller:
             "serviceAccount": {
                 "create": False,
                 "name": self.release_name
-            },
-            "version": "1.14.0"  # Specific version as per documentation
+            }
         }
 
         # For nodes with restricted IMDS access, Fargate, or Hybrid Nodes, add region and VPC ID
