@@ -87,7 +87,7 @@ def install_addons(selected_addons, args, logger):
 
             try:
                 if choice == 1:  # AWS Load Balancer Controller
-                    success = installer.install(args.cluster_name, args.region)
+                    success = installer.install(args.cluster_name, args.region, args.account_id)
                 elif choice == 2:  # Nvidia Device Plugin
                     success = installer.install(enable_time_slicing=args.enable_time_slicing)
                 elif choice == 3:  # Karpenter
@@ -123,6 +123,7 @@ def main():
     parser = argparse.ArgumentParser(description="EKS Addon Installer")
     parser.add_argument("--cluster-name", required=True, help="EKS cluster name")
     parser.add_argument("--region", default="us-west-2", help="AWS region")
+    parser.add_argument("--account-id", help="AWS account ID (optional, will be auto-detected if not provided)")
     parser.add_argument("--cluster-endpoint", help="EKS cluster endpoint (required for Karpenter)")
     parser.add_argument("--enable-time-slicing", action="store_true",
                         help="Enable time slicing for Nvidia plugin")
