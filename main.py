@@ -83,6 +83,12 @@ def install_addons(selected_addons, args, logger):
     for choice in selected_addons:
         if choice in installers:
             name, installer = installers[choice]
+
+            # Check if addon is already installed
+            if hasattr(installer, 'check_if_installed') and installer.check_if_installed():
+                logger.info(f"{name} is already installed. Skipping installation.")
+                continue
+
             log_section(logger, f"Installing {name}")
 
             try:

@@ -264,6 +264,30 @@ class KarpenterInstaller:
             self.logger.error(f"Failed to generate NodePool YAML: {str(e)}")
             return ""
 
+    def check_if_installed(self) -> bool:
+        """Check if Karpenter is already installed."""
+        try:
+            self.logger.info("Checking if Karpenter is already installed...")
+
+            # Check if the deployment exists
+            cmd = [
+                "get", "deployment", self.release_name,
+                "-n", self.namespace,
+                "--ignore-not-found=true"
+            ]
+
+            result = run_kubectl_command(cmd, self.logger)
+            # If output is not empty, the deployment exists
+            if result.stdout.strip():
+                self.logger.info("Karpenter is already installed.")
+                return True
+            else:
+                self.logger.info("Karpenter is not installed.")
+                return False
+        except Exception as e:
+            self.logger.debug(f"Error checking installation status: {str(e)}")
+            return False
+
     def validate_installation(self) -> bool:
         """Validate that Karpenter is installed and running."""
         try:

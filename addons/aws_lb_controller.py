@@ -251,6 +251,29 @@ class AWSLoadBalancerControllerInstaller:
             self.logger.error(f"Failed to install CRDs: {str(e)}")
             return False
 
+    def check_if_installed(self) -> bool:
+        """Check if AWS Load Balancer Controller is already installed."""
+        try:
+            self.logger.info("Checking if AWS Load Balancer Controller is already installed...")
+
+            # Check if the deployment exists
+            cmd = [
+                "get", "deployment", "-n", self.namespace, self.release_name,
+                "--ignore-not-found=true"
+            ]
+
+            result = run_kubectl_command(cmd, self.logger)
+            # If output is not empty, the deployment exists
+            if result.stdout.strip():
+                self.logger.info("AWS Load Balancer Controller is already installed.")
+                return True
+            else:
+                self.logger.info("AWS Load Balancer Controller is not installed.")
+                return False
+        except Exception as e:
+            self.logger.debug(f"Error checking installation status: {str(e)}")
+            return False
+
     def validate_installation(self) -> bool:
         """Validate that the controller is installed and running following AWS documentation."""
         try:

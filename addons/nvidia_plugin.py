@@ -71,6 +71,30 @@ class NvidiaDevicePluginInstaller:
         self.logger.info("NVIDIA Device Plugin installed successfully.")
         return True
 
+    def check_if_installed(self) -> bool:
+        """Check if NVIDIA Device Plugin is already installed."""
+        try:
+            self.logger.info("Checking if NVIDIA Device Plugin is already installed...")
+
+            # Check if the daemonset exists
+            cmd = [
+                "get", "daemonset", "nvidia-device-plugin-daemonset",
+                "-n", self.namespace,
+                "--ignore-not-found=true"
+            ]
+
+            result = run_kubectl_command(cmd, self.logger)
+            # If output is not empty, the daemonset exists
+            if result.stdout.strip():
+                self.logger.info("NVIDIA Device Plugin is already installed.")
+                return True
+            else:
+                self.logger.info("NVIDIA Device Plugin is not installed.")
+                return False
+        except Exception as e:
+            self.logger.debug(f"Error checking installation status: {str(e)}")
+            return False
+
     def validate_installation(self) -> bool:
         """Validate that the plugin is installed and running."""
         try:

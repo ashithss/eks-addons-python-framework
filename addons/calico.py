@@ -84,6 +84,30 @@ class CalicoInstaller:
         self.logger.info("Calico installed successfully in policy-only mode.")
         return True
 
+    def check_if_installed(self) -> bool:
+        """Check if Calico is already installed."""
+        try:
+            self.logger.info("Checking if Calico is already installed...")
+
+            # Check if the tigera-operator deployment exists
+            cmd = [
+                "get", "deployment", "tigera-operator",
+                "-n", self.namespace,
+                "--ignore-not-found=true"
+            ]
+
+            result = run_kubectl_command(cmd, self.logger)
+            # If output is not empty, the deployment exists
+            if result.stdout.strip():
+                self.logger.info("Calico is already installed.")
+                return True
+            else:
+                self.logger.info("Calico is not installed.")
+                return False
+        except Exception as e:
+            self.logger.debug(f"Error checking installation status: {str(e)}")
+            return False
+
     def validate_installation(self) -> bool:
         """Validate that Calico is installed and running."""
         try:
